@@ -36,7 +36,7 @@ def sample(prompt, model, encode, decode):
     for k in range(10):
         y = model.generate(
             x,
-            256,
+            128,
             temperature=0.8,
         )
         result = y[0].tolist()
@@ -45,7 +45,7 @@ def sample(prompt, model, encode, decode):
 
 
 if __name__ == "__main__":
-    model = load_model("gpt2-xl-float16.npz")
+    model = load_model("gpt2-xl.npz")
 
     enc = tiktoken.get_encoding("gpt2")
     encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
