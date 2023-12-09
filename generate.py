@@ -1,5 +1,6 @@
 import tiktoken
 import mlx.core as mx
+import time
 
 from mlx.utils import tree_unflatten
 from transformer import GPT, GPTConfig
@@ -27,21 +28,48 @@ def load_model(model_path):
     return model
 
 
+def sample_old(prompt, model, encode, decode):
+    start_ids = encode(prompt)
+
+    # try batch inference
+    x = mx.array([start_ids], dtype=mx.uint32)
+
+    num_tokens_to_generate = 256
+    start = time.time()
+
+    y = model.generate_old(
+        x,
+        max_new_tokens=num_tokens_to_generate,
+        temperature=0.8,
+    )
+    result = y[0].tolist()
+
+    end = time.time()
+    print(decode(result))
+    print("---------------")
+    print(
+        f"Time: {end - start:.3f} s, Tokens per second: {num_tokens_to_generate / (end - start)}"
+    )
+    print("---------------")
+
+
 def sample(prompt, model, encode, decode):
     start_ids = encode(prompt)
 
     # try batch inference
-    x = mx.expand_dims(mx.array(start_ids, dtype=mx.uint32), axis=0)
+    x = mx.array([start_ids], dtype=mx.uint32)
 
-    for k in range(10):
-        y = model.generate(
-            x,
-            128,
-            temperature=0.8,
-        )
-        result = y[0].tolist()
-        print(decode(result))
-        print("---------------")
+    tokens = []
+    start = time.time()
+    for token in model.generate(x, max_new_tokens=256):
+        tokens.append(token.item())
+    end = time.time()
+    print(prompt + decode(tokens))
+    print("---------------")
+    print(
+        f"Time: {end - start:.3f} s, Tokens per second: {len(tokens) / (end - start)}"
+    )
+    print("---------------")
 
 
 if __name__ == "__main__":
@@ -52,6 +80,13 @@ if __name__ == "__main__":
     decode = lambda l: enc.decode(l)
 
     sample(
+        "In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English.",
+        model,
+        encode,
+        decode,
+    )
+
+    sample_old(
         "In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English.",
         model,
         encode,

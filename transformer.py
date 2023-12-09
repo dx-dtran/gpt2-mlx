@@ -47,13 +47,18 @@ class CausalSelfAttention(nn.Module):
         self.n_embd = config.n_embd
         self.dropout = config.dropout
 
-    def __call__(self, x: mx.array, mask=None):
+    def __call__(self, x: mx.array, mask=None, cache=None):
         B, T, C = x.shape
 
         q, k, v = self.c_attn(x).split(3, axis=2)
         k = k.reshape(B, T, self.n_head, C // self.n_head).transpose([0, 2, 1, 3])
         q = q.reshape(B, T, self.n_head, C // self.n_head).transpose([0, 2, 1, 3])
         v = v.reshape(B, T, self.n_head, C // self.n_head).transpose([0, 2, 1, 3])
+
+        if cache is not None:
+            key_cache, value_cache = cache
+            k = mx.concatenate([key_cache, k], axis=2)
+            v = mx.concatenate([value_cache, v], axis=2)
 
         att = (q @ k.transpose([0, 1, 3, 2])) * (1.0 / math.sqrt(k.shape[-1]))
 
@@ -66,7 +71,7 @@ class CausalSelfAttention(nn.Module):
         y = y.transpose([0, 2, 1, 3]).reshape(B, T, C)
 
         y = self.resid_dropout(self.c_proj(y))
-        return y
+        return y, (k, v)
 
 
 class MLP(nn.Module):
@@ -93,10 +98,11 @@ class Block(nn.Module):
         self.ln_2 = nn.LayerNorm(config.n_embd, affine=config.bias)
         self.mlp = MLP(config)
 
-    def __call__(self, x, mask=None):
-        x = x + self.attn(self.ln_1(x), mask)
+    def __call__(self, x, mask=None, cache=None):
+        y, cache = self.attn(self.ln_1(x), mask=mask, cache=cache)
+        x = x + y
         x = x + self.mlp(self.ln_2(x))
-        return x
+        return x, cache
 
 
 class GPT(nn.Module):
@@ -112,21 +118,21 @@ class GPT(nn.Module):
         self.h = [Block(config) for _ in range(config.n_layer)]
         self.ln_f = nn.LayerNorm(config.n_embd, affine=config.bias)
 
-    def __call__(self, idx: mx.array, targets: mx.array = None):
-        b, t = idx.shape
+    def __call__(self, x: mx.array, targets: mx.array = None):
+        b, t = x.shape
         assert (
             t <= self.config.block_size
         ), f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
-        pos = mx.arange(0, t, 1, dtype=idx.dtype)  # shape (t)
+        pos = mx.arange(0, t, 1, dtype=x.dtype)  # shape (t)
 
-        mask = nn.MultiHeadAttention.create_additive_causal_mask(idx.shape[1])
+        mask = nn.MultiHeadAttention.create_additive_causal_mask(t)
         mask = mask.astype(self.wte.weight.dtype)
 
-        tok_emb = self.wte(idx)
+        tok_emb = self.wte(x)
         pos_emb = self.wpe(pos)
         x = self.drop(tok_emb + pos_emb)
         for block in self.h:
-            x = block(x, mask)
+            x, _ = block(x, mask=mask)
         x = self.ln_f(x)
 
         if targets is not None:
@@ -141,7 +147,7 @@ class GPT(nn.Module):
 
         return logits, loss
 
-    def generate(self, idx, max_new_tokens=256, temperature=1.0):
+    def generate_old(self, idx, max_new_tokens=256, temperature=1.0):
         for _ in range(max_new_tokens):
             idx_cond = (
                 idx
@@ -156,3 +162,45 @@ class GPT(nn.Module):
             idx = mx.concatenate([idx, idx_next], axis=1)
 
         return idx
+
+    def generate(self, x, max_new_tokens=256, temperature=0.8):
+        cache = []
+        b, t = x.shape
+        pos = mx.arange(0, t, 1, dtype=x.dtype)  # shape (t)
+
+        mask = nn.MultiHeadAttention.create_additive_causal_mask(x.shape[1])
+        mask = mask.astype(self.wte.weight.dtype)
+
+        tok_emb = self.wte(x)
+        pos_emb = self.wpe(pos)
+        x = self.drop(tok_emb + pos_emb)
+        for block in self.h:
+            x, c = block(x, mask)
+            cache.append(c)
+        x = self.ln_f(x)
+
+        logits = mx.expand_dims(x[:, -1], axis=0) @ self.wte.weight.T
+        y = logits[:, -1, :]
+        y = mx.random.categorical(y * (1 / temperature))
+
+        pos = t
+
+        yield y
+
+        for _ in range(max_new_tokens):
+            x = y[:, None]
+
+            pos += 1
+
+            tok_emb = self.wte(x)
+            pos_emb = self.wpe(pos)
+            x = self.drop(tok_emb + pos_emb)
+            for i in range(len(cache)):
+                x, cache[i] = self.h[i](x, mask=None, cache=cache[i])
+            x = self.ln_f(x)
+
+            logits = mx.expand_dims(x[:, -1], axis=0) @ self.wte.weight.T
+            y = logits[:, -1, :]
+            y = mx.random.categorical(y * (1 / temperature))
+
+            yield y
