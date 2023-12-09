@@ -11,7 +11,7 @@ def load_model(model_path):
         "gpt2-medium": dict(n_layer=24, n_head=16, n_embd=1024),
         "gpt2-large": dict(n_layer=36, n_head=20, n_embd=1280),
         "gpt2-xl": dict(n_layer=48, n_head=25, n_embd=1600),
-    }["gpt2"]
+    }["gpt2-xl"]
 
     config_args["vocab_size"] = 50257
     config_args["block_size"] = 1024
@@ -29,6 +29,8 @@ def load_model(model_path):
 
 def sample(prompt, model, encode, decode):
     start_ids = encode(prompt)
+
+    # try batch inference
     x = mx.expand_dims(mx.array(start_ids, dtype=mx.uint32), axis=0)
 
     for k in range(10):
@@ -43,10 +45,15 @@ def sample(prompt, model, encode, decode):
 
 
 if __name__ == "__main__":
-    model = load_model("gpt2.npz")
+    model = load_model("gpt2-xl-float16.npz")
 
     enc = tiktoken.get_encoding("gpt2")
     encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
     decode = lambda l: enc.decode(l)
 
-    sample("a story about a boy in a castle", model, encode, decode)
+    sample(
+        "In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English.",
+        model,
+        encode,
+        decode,
+    )

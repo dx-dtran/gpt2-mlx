@@ -2,7 +2,6 @@ import math
 import mlx.core as mx
 import mlx.nn as nn
 
-from mlx.utils import tree_unflatten
 from dataclasses import dataclass
 
 
@@ -136,8 +135,8 @@ class GPT(nn.Module):
                 logits.reshape(-1, logits.shape[-1]), targets.reshape(-1)
             )
         else:
-            last_vals = mx.expand_dims(x[:, -1], axis=0)
-            logits = last_vals @ self.wte.weight.T
+            # check to see if this expand_dims is necessary
+            logits = mx.expand_dims(x[:, -1], axis=0) @ self.wte.weight.T
             loss = None
 
         return logits, loss
@@ -157,30 +156,3 @@ class GPT(nn.Module):
             idx = mx.concatenate([idx, idx_next], axis=1)
 
         return idx
-
-
-def load_model(model_path):
-    config_args = {
-        "gpt2": dict(n_layer=12, n_head=12, n_embd=768),
-        "gpt2-medium": dict(n_layer=24, n_head=16, n_embd=1024),
-        "gpt2-large": dict(n_layer=36, n_head=20, n_embd=1280),
-        "gpt2-xl": dict(n_layer=48, n_head=25, n_embd=1600),
-    }["gpt2"]
-
-    config_args["vocab_size"] = 50257
-    config_args["block_size"] = 1024
-    config_args["bias"] = True
-    config = GPTConfig(**config_args)
-
-    model = GPT(config)
-
-    weights = mx.load(model_path)
-    model.update(tree_unflatten(list(weights.items())))
-    mx.eval(model.parameters())
-
-    return model
-
-
-if __name__ == "__main__":
-    gpt = load_model("gpt2.npz")
-    print("hello")
