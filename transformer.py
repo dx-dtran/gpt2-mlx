@@ -112,9 +112,6 @@ class GPT(nn.Module):
         self.drop = nn.Dropout(config.dropout)
         self.h = [Block(config) for _ in range(config.n_layer)]
         self.ln_f = nn.LayerNorm(config.n_embd, affine=config.bias)
-        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
-
-        self.wte.weight = self.lm_head.weight
 
     def __call__(self, idx: mx.array, targets: mx.array = None):
         b, t = idx.shape
@@ -139,7 +136,8 @@ class GPT(nn.Module):
                 logits.reshape(-1, logits.shape[-1]), targets.reshape(-1)
             )
         else:
-            logits = self.lm_head(x)
+            last_vals = mx.expand_dims(x[:, -1], axis=0)
+            logits = last_vals @ self.wte.weight.T
             loss = None
 
         return logits, loss
