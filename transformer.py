@@ -118,30 +118,7 @@ class GPT(nn.Module):
         self.h = [Block(config) for _ in range(config.n_layer)]
         self.ln_f = nn.LayerNorm(config.n_embd, affine=config.bias)
 
-    def __call__(self, x: mx.array, targets: mx.array = None):
-        b, t = x.shape
-        assert (
-            t <= self.config.block_size
-        ), f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
-        pos = mx.arange(0, t, 1, dtype=x.dtype)
-
-        mask = nn.MultiHeadAttention.create_additive_causal_mask(t)
-        mask = mask.astype(self.wte.weight.dtype)
-
-        x, _ = self.forward_transformer_blocks(x, pos, mask=mask)
-
-        if targets is not None:
-            logits = x @ self.wte.weight.T
-            loss = nn.losses.cross_entropy(
-                logits.reshape(-1, logits.shape[-1]), targets.reshape(-1)
-            )
-        else:
-            logits = mx.expand_dims(x[:, -1], axis=0) @ self.wte.weight.T
-            loss = None
-
-        return logits, loss
-
-    def forward_transformer_blocks(
+    def _forward_transformer_blocks(
         self, x: mx.array, pos: mx.array, mask=None, cache=None, build_cache=False
     ):
         tok_emb = self.wte(x)
@@ -159,32 +136,51 @@ class GPT(nn.Module):
                     kv_cache.append(curr_cache)
 
         x = self.ln_f(x)
-        return x, kv_cache if build_cache else cache if cache is not None else None
+        return x, kv_cache if build_cache else cache
+
+    def _create_causal_mask(self, length: int, dtype):
+        mask = nn.MultiHeadAttention.create_additive_causal_mask(length)
+        return mask.astype(dtype)
+
+    def _sample_next_token(self, x, temperature):
+        logits = mx.expand_dims(x[:, -1], axis=0) @ self.wte.weight.T
+        y = logits[:, -1, :]
+        y = mx.random.categorical(y * (1 / temperature))
+        return y
 
     def generate(self, x: mx.array, max_new_tokens=256, temperature=0.8):
         _, t = x.shape
         pos = mx.arange(0, t, 1, dtype=x.dtype)
-        mask = nn.MultiHeadAttention.create_additive_causal_mask(t)
-        mask = mask.astype(self.wte.weight.dtype)
-
-        x, cache = self.forward_transformer_blocks(x, pos, mask=mask, build_cache=True)
-
-        y = self.sample_next_token(x, temperature)
-
+        mask = self._create_causal_mask(t, dtype=self.wte.weight.dtype)
+        x, cache = self._forward_transformer_blocks(x, pos, mask=mask, build_cache=True)
+        y = self._sample_next_token(x, temperature)
         position = t
         yield y
 
         for _ in range(max_new_tokens):
             position += 1
             x = y[:, None]
-            x, cache = self.forward_transformer_blocks(x, position, cache=cache)
-
-            y = self.sample_next_token(x, temperature)
-
+            x, cache = self._forward_transformer_blocks(x, position, cache=cache)
+            y = self._sample_next_token(x, temperature)
             yield y
 
-    def sample_next_token(self, x, temperature):
-        logits = mx.expand_dims(x[:, -1], axis=0) @ self.wte.weight.T
-        y = logits[:, -1, :]
-        y = mx.random.categorical(y * (1 / temperature))
-        return y
+    def __call__(self, x: mx.array, targets: mx.array = None):
+        b, t = x.shape
+        assert (
+            t <= self.config.block_size
+        ), f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
+        pos = mx.arange(0, t, 1, dtype=x.dtype)
+
+        mask = self._create_causal_mask(t, dtype=self.wte.weight.dtype)
+        x, _ = self._forward_transformer_blocks(x, pos, mask=mask)
+
+        if targets is not None:
+            logits = x @ self.wte.weight.T
+            loss = nn.losses.cross_entropy(
+                logits.reshape(-1, logits.shape[-1]), targets.reshape(-1)
+            )
+        else:
+            logits = mx.expand_dims(x[:, -1], axis=0) @ self.wte.weight.T
+            loss = None
+
+        return logits, loss
