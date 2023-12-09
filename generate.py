@@ -6,13 +6,13 @@ from mlx.utils import tree_unflatten
 from transformer import GPT, GPTConfig
 
 
-def load_model(model_path):
+def load_model(model_path, model_name="gpt2-xl"):
     config_args = {
         "gpt2": dict(n_layer=12, n_head=12, n_embd=768),
         "gpt2-medium": dict(n_layer=24, n_head=16, n_embd=1024),
         "gpt2-large": dict(n_layer=36, n_head=20, n_embd=1280),
         "gpt2-xl": dict(n_layer=48, n_head=25, n_embd=1600),
-    }["gpt2-xl"]
+    }[model_name]
 
     config_args["vocab_size"] = 50257
     config_args["block_size"] = 1024
@@ -26,31 +26,6 @@ def load_model(model_path):
     mx.eval(model.parameters())
 
     return model
-
-
-def sample_old(prompt, model, encode, decode):
-    start_ids = encode(prompt)
-
-    # try batch inference
-    x = mx.array([start_ids], dtype=mx.uint32)
-
-    num_tokens_to_generate = 256
-    start = time.time()
-
-    y = model.generate_old(
-        x,
-        max_new_tokens=num_tokens_to_generate,
-        temperature=0.8,
-    )
-    result = y[0].tolist()
-
-    end = time.time()
-    print(decode(result))
-    print("---------------")
-    print(
-        f"Time: {end - start:.3f} s, Tokens per second: {num_tokens_to_generate / (end - start)}"
-    )
-    print("---------------")
 
 
 def sample(prompt, model, encode, decode):
@@ -73,20 +48,13 @@ def sample(prompt, model, encode, decode):
 
 
 if __name__ == "__main__":
-    model = load_model("gpt2-xl.npz")
+    model = load_model("gpt2.npz", "gpt2")
 
     enc = tiktoken.get_encoding("gpt2")
     encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
     decode = lambda l: enc.decode(l)
 
     sample(
-        "In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English.",
-        model,
-        encode,
-        decode,
-    )
-
-    sample_old(
         "In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English.",
         model,
         encode,

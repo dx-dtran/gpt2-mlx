@@ -48,12 +48,12 @@ class CausalSelfAttention(nn.Module):
         self.dropout = config.dropout
 
     def __call__(self, x: mx.array, mask=None, cache=None):
-        B, T, C = x.shape
+        b, t, c = x.shape
 
         q, k, v = self.c_attn(x).split(3, axis=2)
-        k = k.reshape(B, T, self.n_head, C // self.n_head).transpose([0, 2, 1, 3])
-        q = q.reshape(B, T, self.n_head, C // self.n_head).transpose([0, 2, 1, 3])
-        v = v.reshape(B, T, self.n_head, C // self.n_head).transpose([0, 2, 1, 3])
+        k = k.reshape(b, t, self.n_head, c // self.n_head).transpose([0, 2, 1, 3])
+        q = q.reshape(b, t, self.n_head, c // self.n_head).transpose([0, 2, 1, 3])
+        v = v.reshape(b, t, self.n_head, c // self.n_head).transpose([0, 2, 1, 3])
 
         if cache is not None:
             key_cache, value_cache = cache
@@ -68,7 +68,7 @@ class CausalSelfAttention(nn.Module):
         att = mx.softmax(att, axis=-1)
         att = self.attn_dropout(att)
         y = att @ v
-        y = y.transpose([0, 2, 1, 3]).reshape(B, T, C)
+        y = y.transpose([0, 2, 1, 3]).reshape(b, t, c)
 
         y = self.resid_dropout(self.c_proj(y))
         return y, (k, v)
@@ -146,22 +146,6 @@ class GPT(nn.Module):
             loss = None
 
         return logits, loss
-
-    def generate_old(self, idx, max_new_tokens=256, temperature=1.0):
-        for _ in range(max_new_tokens):
-            idx_cond = (
-                idx
-                if idx.shape[1] <= self.config.block_size
-                else idx[:, -self.config.block_size :]
-            )
-            logits, _ = self(idx_cond)
-            logits = logits[:, -1, :]
-
-            idx_next = mx.random.categorical(logits * (1 / temperature))
-            idx_next = mx.expand_dims(idx_next, axis=0)
-            idx = mx.concatenate([idx, idx_next], axis=1)
-
-        return idx
 
     def generate(self, x, max_new_tokens=256, temperature=0.8):
         cache = []
