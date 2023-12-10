@@ -54,22 +54,22 @@ def get_learning_rate(it, lr, min_lr, warmup_iters, lr_decay_iters):
 def main():
     train_path = "train.npy"
 
-    config_args = dict(n_layer=4, n_head=4, n_embd=256)
+    config_args = dict(n_layer=3, n_head=4, n_embd=256)
 
     config_args["vocab_size"] = 50304
-    config_args["block_size"] = 512
+    config_args["block_size"] = 256
     config_args["bias"] = True
     config = GPTConfig(**config_args)
 
     context_size = config_args["block_size"]
-    batch_size = 2
-    num_iters = 5000
-    steps_per_report = 10
-    grad_accumulation_steps = 8
+    batch_size = 4
+    num_iters = 6000
+    grad_accumulation_steps = 16
+    steps_per_report = grad_accumulation_steps * 2
     max_lr = 1e-3
     min_lr = 1e-4
     warmup_iters = 200
-    lr_decay_iters = 5000
+    lr_decay_iters = 6000
 
     model = GPT(config)
 
