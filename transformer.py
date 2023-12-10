@@ -155,13 +155,13 @@ class GPT(nn.Module):
         mask = self._create_causal_mask(t, dtype=self.wte.weight.dtype)
         x, _ = self._forward_transformer_blocks(x, pos, mask=mask)
 
-        if targets is not None:
-            logits = x @ self.wte.weight.T
-            loss = nn.losses.cross_entropy(
-                logits.reshape(-1, logits.shape[-1]), targets.reshape(-1)
-            )
-        else:
-            logits = mx.expand_dims(x[:, -1], axis=0) @ self.wte.weight.T
-            loss = None
+        return x @ self.wte.weight.T
 
-        return logits, loss
+    def loss(self, x, y):
+        logits = self(x)
+        loss = nn.losses.cross_entropy(
+            logits.reshape(-1, logits.shape[-1]), y.reshape(-1)
+        )
+        mx.simplify(loss)
+
+        return mx.mean(loss)
