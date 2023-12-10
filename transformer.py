@@ -16,31 +16,12 @@ class GPTConfig:
     bias: bool = True
 
 
-class Linear(nn.Module):
-    def __init__(self, input_dims: int, output_dims: int, bias: bool = True):
-        super().__init__()
-        scale = math.sqrt(1 / input_dims)
-        self.weight = mx.random.uniform(
-            low=-scale,
-            high=scale,
-            shape=(output_dims, input_dims),
-        )
-        if bias:
-            self.bias = mx.zeros((output_dims,))
-
-    def __call__(self, x):
-        x = x @ self.weight
-        if "bias" in self:
-            x = x + self.bias
-        return x
-
-
 class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
-        self.c_attn = Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
-        self.c_proj = Linear(config.n_embd, config.n_embd, bias=config.bias)
+        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
+        self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
         self.n_head = config.n_head
@@ -77,9 +58,9 @@ class CausalSelfAttention(nn.Module):
 class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.c_fc = Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
+        self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
         self.gelu = nn.GELU()
-        self.c_proj = Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
+        self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
 
     def __call__(self, x):
