@@ -1,13 +1,17 @@
-# gpt2-mlx
+# `gpt2-mlx`
 
-Run and train GPT-2 on Apple silicon
+A re-implementation of GPT-2 in Apple's new machine learning framework, [MLX](https://github.com/ml-explore/mlx)
+
+Run OpenAI's original 1.5 billion parameter model on your Mac GPU. Or train your own custom models from scratch!
 
 ## Quickstart
 
 ### Install
 
+Use a device with Apple silicon
+
 ```shell
-$ python3 -m venv venv
+$ python -m venv venv
 $ source venv/bin/activate
 $ pip install -r requirements.txt
 ```
@@ -16,12 +20,12 @@ $ pip install -r requirements.txt
 
 Download the pre-trained GPT-2 model weights from [Hugging Face](https://huggingface.co/gpt2-xl)
 
-Convert the PyTorch model weights to MLX
+Convert the PyTorch model weights to the MLX format
 ```shell
 $ python convert_weights.py --weights_path="path/to/pytorch_model.bin" --model_name="gpt2-xl"
 ```
 
-Run the model
+Generate text
 ```shell
 $ python generate.py --model_name="gpt2-xl" --prompt "In a shocking finding, scientists discovered a herd of unicorns"
 ```
