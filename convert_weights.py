@@ -17,11 +17,11 @@ def transpose_specific_layers(state_dict):
 
 
 if __name__ == "__main__":
-    state_dict = torch.load("gpt2.bin")
+    state_dict = torch.load("gpt2-xl.bin")
 
     state_dict_transposed = transpose_specific_layers(state_dict)
 
     np.savez(
-        "gpt2.npz",
+        "gpt2-xl.npz",
         **{k: v.to(torch.float32).numpy() for k, v in state_dict_transposed.items()},
     )

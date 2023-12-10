@@ -34,12 +34,14 @@ def sample(prompt, model, encode, decode):
     # try batch inference
     x = mx.array([start_ids], dtype=mx.uint32)
 
+    print(prompt, end="")
     tokens = []
     start = time.time()
     for token in model.generate(x, max_new_tokens=256):
-        tokens.append(token.item())
+        tok = token.item()
+        tokens.append(tok)
+        print(decode([tok]), end="")
     end = time.time()
-    print(prompt + decode(tokens))
     print("---------------")
     print(
         f"Time: {end - start:.3f} s, Tokens per second: {len(tokens) / (end - start)}"
@@ -48,7 +50,7 @@ def sample(prompt, model, encode, decode):
 
 
 if __name__ == "__main__":
-    model = load_model("gpt2.npz", "gpt2")
+    model = load_model("gpt2-xl.npz", "gpt2-xl")
 
     enc = tiktoken.get_encoding("gpt2")
     encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
