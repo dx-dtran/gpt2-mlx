@@ -62,10 +62,9 @@ def main():
     config = GPTConfig(**config_args)
 
     context_size = config_args["block_size"]
-    batch_size = 4
     num_iters = 6000
+    batch_size = 4
     grad_accumulation_steps = 16
-    steps_per_report = grad_accumulation_steps * 2
     max_lr = 1e-3
     min_lr = 1e-4
     warmup_iters = 200
@@ -83,7 +82,6 @@ def main():
     loss_and_grad_fn = nn.value_and_grad(model, model.loss)
 
     train_iterator = iterate_batches_memmap(batch_size, context_size, train_path)
-    losses = []
 
     inputs, targets = next(iter(train_iterator))
     inputs, targets = map(mx.array, (inputs, targets))
@@ -91,10 +89,14 @@ def main():
     _, initial_grads = loss_and_grad_fn(inputs, targets)
 
     accumulated_grads = tree_map(lambda x: mx.zeros_like(x), model.parameters())
+    accumulated_loss = 0.0
     weight_per_step = 1.0 / grad_accumulation_steps
     tic = time.perf_counter()
 
-    for it, (inputs, targets) in zip(range(num_iters), train_iterator):
+    total_micro_batch_iters = num_iters * grad_accumulation_steps
+    full_iteration_count = 0
+    for it in range(total_micro_batch_iters):
+        inputs, targets = next(train_iterator)
         curr_lr = get_learning_rate(it, max_lr, min_lr, warmup_iters, lr_decay_iters)
         optimizer.set_learning_rate(curr_lr)
 
@@ -104,24 +106,23 @@ def main():
         accumulated_grads = tree_map(
             lambda acc, new: acc + new * weight_per_step, accumulated_grads, grads
         )
+        accumulated_loss += loss.item()
 
         if (it + 1) % grad_accumulation_steps == 0:
             model.update(optimizer.apply_gradients(accumulated_grads, model))
             accumulated_grads = tree_map(lambda x: mx.zeros_like(x), model.parameters())
+            average_loss = accumulated_loss / grad_accumulation_steps
+            accumulated_loss = 0.0
 
-        mx.simplify(loss, model.parameters())
-        mx.eval(loss, model.parameters())
-        losses.append(loss.item())
-
-        if (it + 1) % steps_per_report == 0:
-            train_loss = np.mean(losses)
+            mx.simplify(loss, model.parameters())
+            mx.eval(loss, model.parameters())
+            full_iteration_count += 1
             toc = time.perf_counter()
             print(
-                f"Iter {it + 1}: Train loss {train_loss:.3f}, "
-                f"It/sec {steps_per_report / (toc - tic):.3f}, "
+                f"Iter {full_iteration_count}: Train loss {average_loss:.3f}, "
+                f"It/sec {1.0 / (toc - tic):.3f}, "
                 f"lr {curr_lr:.4f}"
             )
-            losses = []
             tic = time.perf_counter()
 
 
