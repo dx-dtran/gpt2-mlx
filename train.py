@@ -3,7 +3,7 @@ import numpy as np
 import mlx.core as mx
 import mlx.nn as nn
 import mlx.optimizers as optim
-from mlx.utils import tree_flatten
+from mlx.utils import tree_flatten, tree_map
 from transformer import GPT, GPTConfig
 
 
@@ -38,48 +38,18 @@ def iterate_batches_memmap(batch_size, context_size, memmap_path):
             s = 0
 
 
-def init_accumulator(grads_structure):
-    if isinstance(grads_structure, dict):
-        return {k: init_accumulator(v) for k, v in grads_structure.items()}
-    elif isinstance(grads_structure, list):
-        return [init_accumulator(item) for item in grads_structure]
-    else:
-        return mx.zeros_like(grads_structure)
-
-
-def accumulate_grads(accumulated, new):
-    if isinstance(new, dict):
-        return {k: accumulate_grads(accumulated[k], v) for k, v in new.items()}
-    elif isinstance(new, list):
-        return [accumulate_grads(acc, n) for acc, n in zip(accumulated, new)]
-    else:
-        return accumulated + new
-
-
-def normalize_grads(accumulated, grad_accumulation_steps):
-    if isinstance(accumulated, dict):
-        return {
-            k: normalize_grads(v, grad_accumulation_steps)
-            for k, v in accumulated.items()
-        }
-    elif isinstance(accumulated, list):
-        return [normalize_grads(item, grad_accumulation_steps) for item in accumulated]
-    else:
-        return accumulated / grad_accumulation_steps
-
-
 def main():
     train_path = "train.npy"
 
     config_args = {
-        "gpt2": dict(n_layer=1, n_head=12, n_embd=768),
+        "gpt2": dict(n_layer=4, n_head=4, n_embd=256),
         "gpt2-medium": dict(n_layer=24, n_head=16, n_embd=1024),
         "gpt2-large": dict(n_layer=36, n_head=20, n_embd=1280),
         "gpt2-xl": dict(n_layer=48, n_head=25, n_embd=1600),
     }["gpt2"]
 
-    config_args["vocab_size"] = 50257
-    config_args["block_size"] = 1024
+    config_args["vocab_size"] = 50304
+    config_args["block_size"] = 512
     config_args["bias"] = True
     config = GPTConfig(**config_args)
 
@@ -97,7 +67,7 @@ def main():
     )
     print(f"Training a transformer with {nparams / 1024**2:.3f} M parameters")
 
-    optimizer = optim.Adam(learning_rate=1e-3)
+    optimizer = optim.Adam(learning_rate=1e-4)
     loss_and_grad_fn = nn.value_and_grad(model, model.loss)
 
     train_iterator = iterate_batches_memmap(batch_size, context_size, train_path)
@@ -108,20 +78,23 @@ def main():
 
     _, initial_grads = loss_and_grad_fn(inputs, targets)
 
-    accumulated_grads = init_accumulator(initial_grads)
+    accumulated_grads = tree_map(lambda x: mx.zeros_like(x), model.parameters())
 
     for it, (inputs, targets) in zip(range(num_iters), train_iterator):
         inputs, targets = map(mx.array, (inputs, targets))
         loss, grads = loss_and_grad_fn(inputs, targets)
 
-        accumulated_grads = accumulate_grads(accumulated_grads, grads)
+        accumulated_grads = tree_map(
+            lambda acc, new: acc + new, accumulated_grads, grads
+        )
 
         if (it + 1) % grad_accumulation_steps == 0:
-            normalized_grads = normalize_grads(
-                accumulated_grads, grad_accumulation_steps
+            accumulated_grads = tree_map(
+                lambda x: x / grad_accumulation_steps, accumulated_grads
             )
-            model.update(optimizer.apply_gradients(normalized_grads, model))
-            accumulated_grads = init_accumulator(accumulated_grads)
+
+            model.update(optimizer.apply_gradients(accumulated_grads, model))
+            accumulated_grads = tree_map(lambda x: mx.zeros_like(x), model.parameters())
 
         mx.simplify(loss, model.parameters())
         mx.eval(loss, model.parameters())
