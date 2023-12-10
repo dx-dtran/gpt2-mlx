@@ -2,7 +2,8 @@ import time
 import numpy as np
 import mlx.core as mx
 import mlx.nn as nn
-import mlx.optimizers as optim
+import optim as opt
+import math
 
 from mlx.utils import tree_flatten, tree_map
 from transformer import GPT, GPTConfig
@@ -39,6 +40,17 @@ def iterate_batches_memmap(batch_size, context_size, memmap_path):
             s = 0
 
 
+def get_learning_rate(it, lr, min_lr, warmup_iters, lr_decay_iters):
+    if it < warmup_iters:
+        return lr * it / warmup_iters
+    if it > lr_decay_iters:
+        return min_lr
+    decay_ratio = (it - warmup_iters) / (lr_decay_iters - warmup_iters)
+    assert 0 <= decay_ratio <= 1
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
+    return min_lr + coeff * (lr - min_lr)
+
+
 def main():
     train_path = "train.npy"
 
@@ -51,9 +63,13 @@ def main():
 
     context_size = config_args["block_size"]
     batch_size = 2
-    num_iters = 50000
+    num_iters = 5000
     steps_per_report = 10
     grad_accumulation_steps = 8
+    max_lr = 1e-3
+    min_lr = 1e-4
+    warmup_iters = 200
+    lr_decay_iters = 5000
 
     model = GPT(config)
 
@@ -63,7 +79,7 @@ def main():
     )
     print(f"Training a transformer with {nparams / 1024**2:.3f} M parameters")
 
-    optimizer = optim.Adam(learning_rate=1e-4)
+    optimizer = opt.AdamW(learning_rate=max_lr)
     loss_and_grad_fn = nn.value_and_grad(model, model.loss)
 
     train_iterator = iterate_batches_memmap(batch_size, context_size, train_path)
@@ -79,6 +95,9 @@ def main():
     tic = time.perf_counter()
 
     for it, (inputs, targets) in zip(range(num_iters), train_iterator):
+        curr_lr = get_learning_rate(it, max_lr, min_lr, warmup_iters, lr_decay_iters)
+        optimizer.set_learning_rate(curr_lr)
+
         inputs, targets = map(mx.array, (inputs, targets))
         loss, grads = loss_and_grad_fn(inputs, targets)
 
@@ -99,7 +118,8 @@ def main():
             toc = time.perf_counter()
             print(
                 f"Iter {it + 1}: Train loss {train_loss:.3f}, "
-                f"It/sec {steps_per_report / (toc - tic):.3f}"
+                f"It/sec {steps_per_report / (toc - tic):.3f}, "
+                f"lr {curr_lr:.4f}"
             )
             losses = []
             tic = time.perf_counter()
