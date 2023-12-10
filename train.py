@@ -1,8 +1,9 @@
+import time
 import numpy as np
-
 import mlx.core as mx
 import mlx.nn as nn
 import mlx.optimizers as optim
+
 from mlx.utils import tree_flatten, tree_map
 from transformer import GPT, GPTConfig
 
@@ -41,12 +42,7 @@ def iterate_batches_memmap(batch_size, context_size, memmap_path):
 def main():
     train_path = "train.npy"
 
-    config_args = {
-        "gpt2": dict(n_layer=4, n_head=4, n_embd=256),
-        "gpt2-medium": dict(n_layer=24, n_head=16, n_embd=1024),
-        "gpt2-large": dict(n_layer=36, n_head=20, n_embd=1280),
-        "gpt2-xl": dict(n_layer=48, n_head=25, n_embd=1600),
-    }["gpt2"]
+    config_args = dict(n_layer=4, n_head=4, n_embd=256)
 
     config_args["vocab_size"] = 50304
     config_args["block_size"] = 512
@@ -79,30 +75,34 @@ def main():
     _, initial_grads = loss_and_grad_fn(inputs, targets)
 
     accumulated_grads = tree_map(lambda x: mx.zeros_like(x), model.parameters())
+    weight_per_step = 1.0 / grad_accumulation_steps
+    tic = time.perf_counter()
 
     for it, (inputs, targets) in zip(range(num_iters), train_iterator):
         inputs, targets = map(mx.array, (inputs, targets))
         loss, grads = loss_and_grad_fn(inputs, targets)
 
         accumulated_grads = tree_map(
-            lambda acc, new: acc + new, accumulated_grads, grads
+            lambda acc, new: acc + new * weight_per_step, accumulated_grads, grads
         )
 
         if (it + 1) % grad_accumulation_steps == 0:
-            accumulated_grads = tree_map(
-                lambda x: x / grad_accumulation_steps, accumulated_grads
-            )
-
             model.update(optimizer.apply_gradients(accumulated_grads, model))
             accumulated_grads = tree_map(lambda x: mx.zeros_like(x), model.parameters())
 
         mx.simplify(loss, model.parameters())
         mx.eval(loss, model.parameters())
         losses.append(loss.item())
+
         if (it + 1) % steps_per_report == 0:
             train_loss = np.mean(losses)
-            print(f"Iter {it + 1}: Train loss {train_loss:.3f}, ")
+            toc = time.perf_counter()
+            print(
+                f"Iter {it + 1}: Train loss {train_loss:.3f}, "
+                f"It/sec {steps_per_report / (toc - tic):.3f}"
+            )
             losses = []
+            tic = time.perf_counter()
 
 
 if __name__ == "__main__":
