@@ -1,4 +1,6 @@
+import argparse
 import numpy as np
+import os
 import torch
 
 
@@ -17,11 +19,30 @@ def transpose_specific_layers(state_dict):
 
 
 if __name__ == "__main__":
-    state_dict = torch.load("gpt2-xl.bin")
+    parser = argparse.ArgumentParser(description="Convert GPT-2 PyTorch weights to npz")
+
+    parser.add_argument(
+        "--weights_path",
+        type=str,
+        default="pytorch_model.bin",
+        help="Path to PyTorch weights",
+    )
+    parser.add_argument(
+        "--model_name",
+        type=str,
+        default="gpt2-xl",
+        help="The name of the model",
+    )
+
+    args = parser.parse_args()
+    state_dict = torch.load(args.weights_path)
 
     state_dict_transposed = transpose_specific_layers(state_dict)
 
+    input_dir = os.path.dirname(args.weights_path)
+    output_path = os.path.join(input_dir, f"{args.model_name}.npz")
+
     np.savez(
-        "gpt2-xl.npz",
+        output_path,
         **{k: v.to(torch.float32).numpy() for k, v in state_dict_transposed.items()},
     )

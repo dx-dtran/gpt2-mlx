@@ -1,12 +1,13 @@
+import argparse
 import tiktoken
-import mlx.core as mx
 import time
+import mlx.core as mx
 
 from mlx.utils import tree_unflatten
 from transformer import GPT, GPTConfig
 
 
-def load_model(model_path, model_name="gpt2-xl"):
+def load_model(model_name="gpt2-xl"):
     config_args = {
         "gpt2": dict(n_layer=12, n_head=12, n_embd=768),
         "gpt2-medium": dict(n_layer=24, n_head=16, n_embd=1024),
@@ -21,7 +22,7 @@ def load_model(model_path, model_name="gpt2-xl"):
 
     model = GPT(config)
 
-    weights = mx.load(model_path)
+    weights = mx.load(model_name + ".npz")
     model.update(tree_unflatten(list(weights.items())))
     mx.eval(model.parameters())
 
@@ -53,9 +54,18 @@ def sample(prompt, model):
 
 
 if __name__ == "__main__":
-    model = load_model("gpt2-xl.npz", "gpt2-xl")
-
-    sample(
-        "In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English.",
-        model,
+    parser = argparse.ArgumentParser(description="Generate text from GPT-2")
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        default="In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English.",
+        help="The prompt to generate text from",
     )
+    parser.add_argument(
+        "--model_name", type=str, default="gpt2-xl", help="The name of the model to use"
+    )
+
+    args = parser.parse_args()
+
+    model = load_model(args.model_name)
+    sample(args.prompt, model)
