@@ -28,7 +28,10 @@ def load_model(model_path, model_name="gpt2-xl"):
     return model
 
 
-def sample(prompt, model, encode, decode):
+def sample(prompt, model):
+    enc = tiktoken.get_encoding("gpt2")
+    encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
+    decode = lambda l: enc.decode(l)
     start_ids = encode(prompt)
 
     # try batch inference
@@ -52,13 +55,7 @@ def sample(prompt, model, encode, decode):
 if __name__ == "__main__":
     model = load_model("gpt2-xl.npz", "gpt2-xl")
 
-    enc = tiktoken.get_encoding("gpt2")
-    encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
-    decode = lambda l: enc.decode(l)
-
     sample(
         "In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English.",
         model,
-        encode,
-        decode,
     )
