@@ -2,7 +2,7 @@
 
 A re-implementation of GPT-2 in Apple's new machine learning framework, [MLX](https://github.com/ml-explore/mlx)
 
-Run OpenAI's original 1.5 billion parameter model locally on your Mac GPU. Or train your own custom GPT-style models from scratch!
+Run OpenAI's 1.5 billion parameter model or train custom GPT-style models from scratch, all on your Mac GPU!
 
 <p align="center">
   <img src="gpt2-mlx.gif" alt="GIF of GPT2-XL decoding">
@@ -21,6 +21,8 @@ $ python -m venv venv
 $ source venv/bin/activate
 $ pip install -r requirements.txt
 ```
+
+See the full GPT-2 neural network architecture, implemented in MLX, in [transformer.py](transformer.py)
 
 ### Run
 
