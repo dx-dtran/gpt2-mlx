@@ -78,7 +78,14 @@ class GPTTrainer:
         self.optimizer = opt.AdamW(learning_rate=self.max_lr)
         self.loss_and_grad_fn = nn.value_and_grad(self.model, self.model.loss)
 
-    def print_model_parameters(self):
+        self.accumulated_grads = tree_map(
+            lambda x: mx.zeros_like(x), self.model.parameters()
+        )
+        self.accumulated_loss = 0.0
+        self.weight_per_step = 1.0 / self.train_config.grad_accumulation_steps
+        self.full_iteration_count = 0
+
+    def print_parameter_count(self):
         mx.eval(self.model.parameters())
         nparams = sum(x.size for k, x in tree_flatten(self.model.parameters()))
         print(f"Training a custom GPT model with {nparams / 1e6:.3f} M parameters")
@@ -92,7 +99,11 @@ class GPTTrainer:
         )
         return toc
 
-    def get_learning_rate(self, it):
+    def create_data_iterator(self):
+        data_loader = DataLoader(self.data_path, self.model_config.block_size)
+        return data_loader.get_batch_iterator(self.train_config.batch_size)
+
+    def update_learning_rate(self, it):
         if it < self.warmup_iters:
             return self.max_lr * it / self.warmup_iters
         if it > self.lr_decay_iters:
@@ -102,62 +113,56 @@ class GPTTrainer:
         )
         assert 0 <= decay_ratio <= 1
         coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
-        return self.min_lr + coeff * (self.max_lr - self.min_lr)
+        new_lr = self.min_lr + coeff * (self.max_lr - self.min_lr)
 
-    def update_learning_rate(self, iteration_count):
-        current_lr = self.get_learning_rate(iteration_count)
-        self.optimizer.set_learning_rate(current_lr)
+        self.optimizer.set_learning_rate(new_lr)
 
-    def process_batch(self, inputs, targets):
+    def compute_loss_and_gradients(self, inputs, targets):
         inputs, targets = map(mx.array, (inputs, targets))
         loss, grads = self.loss_and_grad_fn(inputs, targets)
-        return loss, grads
 
-    def train(self):
-        self.print_model_parameters()
+        self.accumulated_grads = tree_map(
+            lambda acc, new: acc + new * self.weight_per_step,
+            self.accumulated_grads,
+            grads,
+        )
+        self.accumulated_loss += loss.item()
+        return loss
 
-        data_loader = DataLoader(self.data_path, self.model_config.block_size)
-        train_iterator = data_loader.get_batch_iterator(self.train_config.batch_size)
-
-        accumulated_grads = tree_map(
+    def perform_gradient_step(self):
+        self.model.update(
+            self.optimizer.apply_gradients(self.accumulated_grads, self.model)
+        )
+        self.accumulated_grads = tree_map(
             lambda x: mx.zeros_like(x), self.model.parameters()
         )
-        accumulated_loss = 0.0
-        weight_per_step = 1.0 / self.train_config.grad_accumulation_steps
+
+    def simplify_and_evaluate_loss(self, loss):
+        mx.simplify(loss, self.model.parameters())
+        mx.eval(loss, self.model.parameters())
+
+    def train(self):
+        self.print_parameter_count()
+
+        data_iterator = self.create_data_iterator()
         tic = time.perf_counter()
 
-        total_micro_batch_iters = (
+        for it in range(
             self.train_config.num_iters * self.train_config.grad_accumulation_steps
-        )
-        full_iteration_count = 0
-        for it in range(total_micro_batch_iters):
-            inputs, targets = next(train_iterator)
-            loss, grads = self.process_batch(inputs, targets)
-
-            accumulated_grads = tree_map(
-                lambda acc, new: acc + new * weight_per_step,
-                accumulated_grads,
-                grads,
-            )
-            accumulated_loss += loss.item()
+        ):
+            inputs, targets = next(data_iterator)
+            loss = self.compute_loss_and_gradients(inputs, targets)
 
             if (it + 1) % self.train_config.grad_accumulation_steps == 0:
-                self.update_learning_rate(full_iteration_count)
-                self.model.update(
-                    self.optimizer.apply_gradients(accumulated_grads, self.model)
-                )
-                accumulated_grads = tree_map(
-                    lambda x: mx.zeros_like(x), self.model.parameters()
-                )
+                self.perform_gradient_step()
+                self.update_learning_rate(self.full_iteration_count)
                 average_loss = (
-                    accumulated_loss / self.train_config.grad_accumulation_steps
+                    self.accumulated_loss / self.train_config.grad_accumulation_steps
                 )
-                accumulated_loss = 0.0
-
-                mx.simplify(loss, self.model.parameters())
-                mx.eval(loss, self.model.parameters())
-                full_iteration_count += 1
-                tic = self.print_progress(full_iteration_count, average_loss, tic)
+                self.accumulated_loss = 0.0
+                self.simplify_and_evaluate_loss(loss)
+                self.full_iteration_count += 1
+                tic = self.print_progress(self.full_iteration_count, average_loss, tic)
 
 
 def main(train_path):
