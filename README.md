@@ -40,6 +40,8 @@ $ python generate.py --model_name="gpt2-xl" --prompt "In a shocking finding, sci
 
 ### Train
 
+With `gpt2-mlx`, it is possible to train a custom GPT-style model on your own data
+
 First, gather your training data and save it as a text file, i.e. `train.txt`
 
 Run the following script to pre-process and tokenize the text data into a format compatible with the model
@@ -48,8 +50,12 @@ Run the following script to pre-process and tokenize the text data into a format
 $ python prepare_data.py --data_path="path/to/train.txt"
 ```
 
-Train a GPT-style model on your dataset, natively on your device
+Train the model, natively on your device
 
 ```shell
 $ python train.py --data_path="path/to/train.npy"
 ```
+
+The [training script](train.py) loads data in batches at each training step to avoid loading the entire dataset into memory
+
+It also has an implementation of gradient accumulation, allowing you to train larger models with larger batch sizes than would otherwise fit in memory

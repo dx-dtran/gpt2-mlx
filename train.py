@@ -10,8 +10,8 @@ from mlx.utils import tree_flatten, tree_map
 from transformer import GPT, GPTConfig
 
 
-def to_samples_memmap(context_size, memmap_path):
-    dataset = np.memmap(memmap_path, dtype=np.uint16, mode="r")
+def create_training_examples(data_path, context_size):
+    dataset = np.memmap(data_path, dtype=np.uint16, mode="r")
     tokens = len(dataset)
     window_size = context_size + 1
     samples = tokens - window_size + 1
@@ -24,20 +24,19 @@ def to_samples_memmap(context_size, memmap_path):
     return X[:, :-1], X[:, 1:]
 
 
-def iterate_batches_memmap(batch_size, context_size, memmap_path):
-    inputs, targets = to_samples_memmap(context_size, memmap_path)
+def get_batch(x, y, batch_size):
     s = 0
     while True:
         if s == 0:
-            perm = np.random.permutation(inputs.shape[0])
+            perm = np.random.permutation(x.shape[0])
         ids = perm[s : s + batch_size]
 
-        batch_inputs = inputs[ids].astype(np.int64)
-        batch_targets = targets[ids].astype(np.int64)
+        batch_inputs = x[ids].astype(np.int64)
+        batch_targets = y[ids].astype(np.int64)
 
         yield batch_inputs, batch_targets
         s += batch_size
-        if s >= inputs.shape[0]:
+        if s >= x.shape[0]:
             s = 0
 
 
@@ -53,8 +52,6 @@ def get_learning_rate(it, lr, min_lr, warmup_iters, lr_decay_iters):
 
 
 def main(train_path):
-    # train_path = "train.npy"
-
     config_args = dict(n_layer=3, n_head=4, n_embd=256)
 
     config_args["vocab_size"] = 50304
@@ -82,7 +79,8 @@ def main(train_path):
     optimizer = opt.AdamW(learning_rate=max_lr)
     loss_and_grad_fn = nn.value_and_grad(model, model.loss)
 
-    train_iterator = iterate_batches_memmap(batch_size, context_size, train_path)
+    x, y = create_training_examples(train_path, context_size)
+    train_iterator = get_batch(x, y, batch_size)
 
     inputs, targets = next(iter(train_iterator))
     inputs, targets = map(mx.array, (inputs, targets))

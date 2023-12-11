@@ -1,5 +1,6 @@
 *.bin
 *.npz
+*.npy
 .idea
 venv
 __pycache__/
