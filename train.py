@@ -60,21 +60,19 @@ def main(train_path):
     config = GPTConfig(**config_args)
 
     context_size = config_args["block_size"]
-    num_iters = 6000
+    num_iters = 300
     batch_size = 4
     grad_accumulation_steps = 16
     max_lr = 1e-3
     min_lr = 1e-4
-    warmup_iters = 200
-    lr_decay_iters = 6000
+    warmup_iters = 0
+    lr_decay_iters = 300
 
     model = GPT(config)
 
     mx.eval(model.parameters())
-    nparams = sum(
-        x.size for k, x in tree_flatten(model.parameters()) if "embedding" not in k
-    )
-    print(f"Training a transformer with {nparams / 1024**2:.3f} M parameters")
+    nparams = sum(x.size for k, x in tree_flatten(model.parameters()))
+    print(f"Training a custom GPT model with {nparams / 1e6:.3f} M parameters")
 
     optimizer = opt.AdamW(learning_rate=max_lr)
     loss_and_grad_fn = nn.value_and_grad(model, model.loss)
@@ -96,8 +94,6 @@ def main(train_path):
     full_iteration_count = 0
     for it in range(total_micro_batch_iters):
         inputs, targets = next(train_iterator)
-        curr_lr = get_learning_rate(it, max_lr, min_lr, warmup_iters, lr_decay_iters)
-        optimizer.set_learning_rate(curr_lr)
 
         inputs, targets = map(mx.array, (inputs, targets))
         loss, grads = loss_and_grad_fn(inputs, targets)
@@ -108,6 +104,11 @@ def main(train_path):
         accumulated_loss += loss.item()
 
         if (it + 1) % grad_accumulation_steps == 0:
+            curr_lr = get_learning_rate(
+                full_iteration_count, max_lr, min_lr, warmup_iters, lr_decay_iters
+            )
+            optimizer.set_learning_rate(curr_lr)
+
             model.update(optimizer.apply_gradients(accumulated_grads, model))
             accumulated_grads = tree_map(lambda x: mx.zeros_like(x), model.parameters())
             average_loss = accumulated_loss / grad_accumulation_steps
@@ -118,8 +119,8 @@ def main(train_path):
             full_iteration_count += 1
             toc = time.perf_counter()
             print(
-                f"Iter {full_iteration_count}: Train loss {average_loss:.3f}, "
-                f"It/sec {1.0 / (toc - tic):.3f}, "
+                f"iter {full_iteration_count}: train loss {average_loss:.3f}, "
+                f"it/sec {1.0 / (toc - tic):.3f}, "
                 f"lr {curr_lr:.4f}"
             )
             tic = time.perf_counter()

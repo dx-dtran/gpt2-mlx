@@ -3,11 +3,11 @@ import tiktoken
 import time
 import mlx.core as mx
 
-from mlx.utils import tree_unflatten
+from mlx.utils import tree_unflatten, tree_flatten
 from transformer import GPT, GPTConfig
 
 
-def load_model(model_name="gpt2-xl"):
+def load_model(model_name):
     config_args = {
         "gpt2": dict(n_layer=12, n_head=12, n_embd=768),
         "gpt2-medium": dict(n_layer=24, n_head=16, n_embd=1024),
@@ -25,6 +25,9 @@ def load_model(model_name="gpt2-xl"):
     weights = mx.load(model_name + ".npz")
     model.update(tree_unflatten(list(weights.items())))
     mx.eval(model.parameters())
+
+    nparams = sum(x.size for k, x in tree_flatten(model.parameters()))
+    print(f"Loaded GPT-2 with {nparams / 1e6:.3f} M parameters")
 
     return model
 
@@ -48,7 +51,7 @@ def sample(prompt, model):
     end = time.time()
     print("---------------")
     print(
-        f"Time: {end - start:.3f} s, Tokens per second: {len(tokens) / (end - start)}"
+        f"time: {end - start:.3f} s, tokens per second: {len(tokens) / (end - start)}"
     )
     print("---------------")
 
