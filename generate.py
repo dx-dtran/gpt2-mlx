@@ -44,7 +44,7 @@ def sample(prompt, model):
     for token in model.generate(x, max_new_tokens=256):
         tok = token.item()
         tokens.append(tok)
-        print(decode([tok]), end="")
+        print(decode([tok]), end="", flush=True)
     end = time.time()
     print("---------------")
     print(

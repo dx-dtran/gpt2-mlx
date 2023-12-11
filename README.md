@@ -4,6 +4,12 @@ A re-implementation of GPT-2 in Apple's new machine learning framework, [MLX](ht
 
 Run OpenAI's original 1.5 billion parameter model on your Mac GPU. Or train your own custom models from scratch!
 
+<p align="center">
+  <img src="gpt2-mlx.gif" alt="GIF of GPT2-XL decoding">
+  <br>
+  <em>GPT-2 XL 1.5B real-time text generation on M1 Pro 16GB</em>
+</p>
+
 ## Quickstart
 
 ### Install
