@@ -8,36 +8,53 @@ import math
 
 from mlx.utils import tree_flatten, tree_map
 from transformer import GPT, GPTConfig
+from dataclasses import dataclass
 
 
-def create_training_examples(data_path, context_size):
-    dataset = np.memmap(data_path, dtype=np.uint16, mode="r")
-    tokens = len(dataset)
-    window_size = context_size + 1
-    samples = tokens - window_size + 1
-
-    X = np.lib.stride_tricks.as_strided(
-        dataset,
-        shape=(samples, window_size),
-        strides=(dataset.itemsize, dataset.itemsize),
-    )
-    return X[:, :-1], X[:, 1:]
+@dataclass
+class TrainConfig:
+    batch_size: int
+    num_iters: int
+    grad_accumulation_steps: int
+    max_lr: float
+    min_lr: float
+    warmup_iters: int
+    lr_decay_iters: int
 
 
-def get_batch(x, y, batch_size):
-    s = 0
-    while True:
-        if s == 0:
-            perm = np.random.permutation(x.shape[0])
-        ids = perm[s : s + batch_size]
+class DataLoader:
+    def __init__(self, data_path, context_size):
+        self.data_path = data_path
+        self.context_size = context_size
+        self.x, self.y = self.create_training_examples()
 
-        batch_inputs = x[ids].astype(np.int64)
-        batch_targets = y[ids].astype(np.int64)
+    def create_training_examples(self):
+        dataset = np.memmap(self.data_path, dtype=np.uint16, mode="r")
+        tokens = len(dataset)
+        window_size = self.context_size + 1
+        samples = tokens - window_size + 1
 
-        yield batch_inputs, batch_targets
-        s += batch_size
-        if s >= x.shape[0]:
-            s = 0
+        X = np.lib.stride_tricks.as_strided(
+            dataset,
+            shape=(samples, window_size),
+            strides=(dataset.itemsize, dataset.itemsize),
+        )
+        return X[:, :-1], X[:, 1:]
+
+    def get_batch_iterator(self, batch_size):
+        s = 0
+        while True:
+            if s == 0:
+                perm = np.random.permutation(self.x.shape[0])
+            ids = perm[s : s + batch_size]
+
+            batch_inputs = self.x[ids].astype(np.int64)
+            batch_targets = self.y[ids].astype(np.int64)
+
+            yield batch_inputs, batch_targets
+            s += batch_size
+            if s >= self.x.shape[0]:
+                s = 0
 
 
 def get_learning_rate(it, lr, min_lr, warmup_iters, lr_decay_iters):
@@ -52,14 +69,12 @@ def get_learning_rate(it, lr, min_lr, warmup_iters, lr_decay_iters):
 
 
 def main(train_path):
-    config_args = dict(n_layer=3, n_head=4, n_embd=256)
+    config_args = dict(
+        n_layer=3, n_head=4, n_embd=256, vocab_size=50304, block_size=256, bias=True
+    )
 
-    config_args["vocab_size"] = 50304
-    config_args["block_size"] = 256
-    config_args["bias"] = True
     config = GPTConfig(**config_args)
 
-    context_size = config_args["block_size"]
     num_iters = 300
     batch_size = 4
     grad_accumulation_steps = 16
@@ -77,8 +92,8 @@ def main(train_path):
     optimizer = opt.AdamW(learning_rate=max_lr)
     loss_and_grad_fn = nn.value_and_grad(model, model.loss)
 
-    x, y = create_training_examples(train_path, context_size)
-    train_iterator = get_batch(x, y, batch_size)
+    data_loader = DataLoader(train_path, config.block_size)
+    train_iterator = data_loader.get_batch_iterator(batch_size)
 
     inputs, targets = next(iter(train_iterator))
     inputs, targets = map(mx.array, (inputs, targets))
