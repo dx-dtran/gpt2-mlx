@@ -30,31 +30,28 @@ class DataLoader:
 
     def create_training_examples(self):
         dataset = np.memmap(self.data_path, dtype=np.uint16, mode="r")
-        tokens = len(dataset)
+        num_tokens = len(dataset)
         window_size = self.context_size + 1
-        samples = tokens - window_size + 1
+        examples = num_tokens - window_size + 1
 
-        X = np.lib.stride_tricks.as_strided(
+        x = np.lib.stride_tricks.as_strided(
             dataset,
-            shape=(samples, window_size),
+            shape=(examples, window_size),
             strides=(dataset.itemsize, dataset.itemsize),
         )
-        return X[:, :-1], X[:, 1:]
+        return x[:, :-1], x[:, 1:]
 
     def get_batch_iterator(self, batch_size):
-        s = 0
         while True:
-            if s == 0:
-                perm = np.random.permutation(self.x.shape[0])
-            ids = perm[s : s + batch_size]
+            perm = np.random.permutation(self.x.shape[0])
 
-            batch_inputs = self.x[ids].astype(np.int64)
-            batch_targets = self.y[ids].astype(np.int64)
+            for start in range(0, self.x.shape[0], batch_size):
+                ids = perm[start : start + batch_size]
 
-            yield batch_inputs, batch_targets
-            s += batch_size
-            if s >= self.x.shape[0]:
-                s = 0
+                batch_inputs = self.x[ids].astype(np.int64)
+                batch_targets = self.y[ids].astype(np.int64)
+
+                yield batch_inputs, batch_targets
 
 
 class GPTTrainer:
@@ -82,15 +79,14 @@ class GPTTrainer:
             lambda x: mx.zeros_like(x), self.model.parameters()
         )
         self.accumulated_loss = 0.0
-        self.weight_per_step = 1.0 / self.train_config.grad_accumulation_steps
-        self.full_iteration_count = 0
+        self.iter_num = 0
 
     def print_parameter_count(self):
         mx.eval(self.model.parameters())
         nparams = sum(x.size for k, x in tree_flatten(self.model.parameters()))
         print(f"Training a custom GPT model with {nparams / 1e6:.3f} M parameters")
 
-    def print_progress(self, iteration_count, average_loss, tic):
+    def print_loss(self, iteration_count, average_loss, tic):
         toc = time.perf_counter()
         print(
             f"iter {iteration_count}: train loss {average_loss:.3f}, "
@@ -101,7 +97,7 @@ class GPTTrainer:
 
     def create_data_iterator(self):
         data_loader = DataLoader(self.data_path, self.model_config.block_size)
-        return data_loader.get_batch_iterator(self.train_config.batch_size)
+        return data_loader.get_batch_iterator(self.batch_size)
 
     def update_learning_rate(self, it):
         if it < self.warmup_iters:
@@ -117,17 +113,24 @@ class GPTTrainer:
 
         self.optimizer.set_learning_rate(new_lr)
 
-    def compute_loss_and_gradients(self, inputs, targets):
+    def compute_minibatch_loss_grads(self, inputs, targets):
         inputs, targets = map(mx.array, (inputs, targets))
         loss, grads = self.loss_and_grad_fn(inputs, targets)
 
         self.accumulated_grads = tree_map(
-            lambda acc, new: acc + new * self.weight_per_step,
+            lambda acc, new: acc + new * (1.0 / self.grad_accumulation_steps),
             self.accumulated_grads,
             grads,
         )
         self.accumulated_loss += loss.item()
         return loss
+
+    def compute_batch_loss(self, loss):
+        average_loss = self.accumulated_loss / self.grad_accumulation_steps
+        self.accumulated_loss = 0.0
+        mx.simplify(loss, self.model.parameters())
+        mx.eval(loss, self.model.parameters())
+        return average_loss
 
     def perform_gradient_step(self):
         self.model.update(
@@ -137,32 +140,22 @@ class GPTTrainer:
             lambda x: mx.zeros_like(x), self.model.parameters()
         )
 
-    def simplify_and_evaluate_loss(self, loss):
-        mx.simplify(loss, self.model.parameters())
-        mx.eval(loss, self.model.parameters())
-
     def train(self):
         self.print_parameter_count()
 
-        data_iterator = self.create_data_iterator()
+        train_data = self.create_data_iterator()
         tic = time.perf_counter()
 
-        for it in range(
-            self.train_config.num_iters * self.train_config.grad_accumulation_steps
-        ):
-            inputs, targets = next(data_iterator)
-            loss = self.compute_loss_and_gradients(inputs, targets)
+        for iteration in range(self.num_iters * self.grad_accumulation_steps):
+            inputs, targets = next(train_data)
+            loss = self.compute_minibatch_loss_grads(inputs, targets)
 
-            if (it + 1) % self.train_config.grad_accumulation_steps == 0:
+            if (iteration + 1) % self.grad_accumulation_steps == 0:
                 self.perform_gradient_step()
-                self.update_learning_rate(self.full_iteration_count)
-                average_loss = (
-                    self.accumulated_loss / self.train_config.grad_accumulation_steps
-                )
-                self.accumulated_loss = 0.0
-                self.simplify_and_evaluate_loss(loss)
-                self.full_iteration_count += 1
-                tic = self.print_progress(self.full_iteration_count, average_loss, tic)
+                self.update_learning_rate(self.iter_num)
+                batch_loss = self.compute_batch_loss(loss)
+                tic = self.print_loss(self.iter_num, batch_loss, tic)
+                self.iter_num += 1
 
 
 def main(train_path):
