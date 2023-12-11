@@ -3,7 +3,7 @@ import time
 import numpy as np
 import mlx.core as mx
 import mlx.nn as nn
-import optim as opt
+import optimizer as opt
 import math
 
 from mlx.utils import tree_flatten, tree_map
@@ -75,6 +75,7 @@ class GPTTrainer:
         self.optimizer = opt.AdamW(learning_rate=self.max_lr)
         self.loss_and_grad_fn = nn.value_and_grad(self.model, self.model.loss)
 
+        # init gradient accumulation state
         self.accumulated_grads = tree_map(
             lambda x: mx.zeros_like(x), self.model.parameters()
         )

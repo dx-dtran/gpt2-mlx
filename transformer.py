@@ -32,27 +32,27 @@ class CausalSelfAttention(nn.Module):
         b, t, c = x.shape
 
         q, k, v = self.c_attn(x).split(3, axis=2)
-        k = k.reshape(b, t, self.n_head, c // self.n_head).transpose([0, 2, 1, 3])
-        q = q.reshape(b, t, self.n_head, c // self.n_head).transpose([0, 2, 1, 3])
-        v = v.reshape(b, t, self.n_head, c // self.n_head).transpose([0, 2, 1, 3])
+        k = k.reshape(b, t, self.n_head, c // self.n_head).transpose(0, 2, 1, 3)
+        q = q.reshape(b, t, self.n_head, c // self.n_head).transpose(0, 2, 1, 3)
+        v = v.reshape(b, t, self.n_head, c // self.n_head).transpose(0, 2, 1, 3)
 
         if cache is not None:
             key_cache, value_cache = cache
             k = mx.concatenate([key_cache, k], axis=2)
             v = mx.concatenate([value_cache, v], axis=2)
 
-        att = (q @ k.transpose([0, 1, 3, 2])) * (1.0 / math.sqrt(k.shape[-1]))
+        att = (q @ k.transpose(0, 1, 3, 2)) * (1.0 / math.sqrt(k.shape[-1]))
 
         if mask is not None:
             att = att + mask
 
         att = mx.softmax(att, axis=-1)
         att = self.attn_dropout(att)
-        y = att @ v
-        y = y.transpose([0, 2, 1, 3]).reshape(b, t, c)
+        out = att @ v
+        out = out.transpose(0, 2, 1, 3).reshape(b, t, c)
 
-        y = self.resid_dropout(self.c_proj(y))
-        return y, (k, v)
+        out = self.resid_dropout(self.c_proj(out))
+        return out, (k, v)
 
 
 class MLP(nn.Module):
@@ -80,9 +80,12 @@ class Block(nn.Module):
         self.mlp = MLP(config)
 
     def __call__(self, x, mask=None, cache=None):
-        y, cache = self.attn(self.ln_1(x), mask=mask, cache=cache)
-        x = x + y
-        x = x + self.mlp(self.ln_2(x))
+        norm = self.ln_1(x)
+        att, cache = self.attn(norm, mask=mask, cache=cache)
+        x = x + att
+        norm = self.ln_2(x)
+        mlp = self.mlp(norm)
+        x = x + mlp
         return x, cache
 
 
@@ -119,9 +122,9 @@ class GPT(nn.Module):
         x = self.ln_f(x)
         return x, kv_cache if build_cache else cache
 
-    def _create_causal_mask(self, length: int, dtype):
+    def _create_causal_mask(self, length: int):
         mask = nn.MultiHeadAttention.create_additive_causal_mask(length)
-        return mask.astype(dtype)
+        return mask.astype(self.wte.weight.dtype)
 
     def _sample_next_token(self, x, temperature):
         logits = mx.expand_dims(x[:, -1], axis=0) @ self.wte.weight.T
@@ -132,7 +135,7 @@ class GPT(nn.Module):
     def generate(self, x: mx.array, max_new_tokens=256, temperature=0.8):
         _, t = x.shape
         pos = mx.arange(0, t, 1, dtype=x.dtype)
-        mask = self._create_causal_mask(t, dtype=self.wte.weight.dtype)
+        mask = self._create_causal_mask(t)
         x, cache = self._forward_transformer_blocks(x, pos, mask=mask, build_cache=True)
         y = self._sample_next_token(x, temperature)
         position = t
@@ -152,7 +155,7 @@ class GPT(nn.Module):
         ), f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
         pos = mx.arange(0, t, 1, dtype=x.dtype)
 
-        mask = self._create_causal_mask(t, dtype=self.wte.weight.dtype)
+        mask = self._create_causal_mask(t)
         x, _ = self._forward_transformer_blocks(x, pos, mask=mask)
 
         return x @ self.wte.weight.T
