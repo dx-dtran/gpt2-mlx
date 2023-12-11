@@ -2,7 +2,7 @@
 
 A re-implementation of GPT-2 in Apple's new machine learning framework, [MLX](https://github.com/ml-explore/mlx)
 
-Run OpenAI's original 1.5 billion parameter model on your Mac GPU. Or train your own custom models from scratch!
+Run OpenAI's original 1.5 billion parameter model locally on your Mac GPU. Or train your own custom GPT-style models from scratch!
 
 <p align="center">
   <img src="gpt2-mlx.gif" alt="GIF of GPT2-XL decoding">
@@ -37,6 +37,17 @@ $ python generate.py --model_name="gpt2-xl" --prompt "In a shocking finding, sci
 ```
 
 ### Train
+
+First, gather your training data and save it as a text file, i.e. `train.txt`
+
+Run the following script to pre-process and tokenize the text data into a format compatible with the model
+
 ```shell
-$ python train.py
+$ python prepare_data.py --data_path="path/to/train.txt"
+```
+
+Train a GPT-style model on your dataset, natively on your device
+
+```shell
+$ python train.py --data_path="path/to/train.npy"
 ```

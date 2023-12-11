@@ -1,9 +1,23 @@
+import argparse
 import os
 import tiktoken
 import numpy as np
 
 if __name__ == "__main__":
-    with open("input.txt", "r") as f:
+    parser = argparse.ArgumentParser(
+        description="Prepare training data for custom GPT-2-style model"
+    )
+
+    parser.add_argument(
+        "--data_path",
+        type=str,
+        default="train.txt",
+        help="Path to training data file",
+    )
+
+    args = parser.parse_args()
+
+    with open(args.data_path, "r") as f:
         data = f.read()
     n = len(data)
     train_data = data[: int(n * 0.9)]

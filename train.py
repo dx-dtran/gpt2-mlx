@@ -1,3 +1,4 @@
+import argparse
 import time
 import numpy as np
 import mlx.core as mx
@@ -51,8 +52,8 @@ def get_learning_rate(it, lr, min_lr, warmup_iters, lr_decay_iters):
     return min_lr + coeff * (lr - min_lr)
 
 
-def main():
-    train_path = "train.npy"
+def main(train_path):
+    # train_path = "train.npy"
 
     config_args = dict(n_layer=3, n_head=4, n_embd=256)
 
@@ -127,4 +128,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Train a GPT-2-style model on a custom dataset"
+    )
+
+    parser.add_argument(
+        "--data_path",
+        type=str,
+        default="train.npy",
+        help="Path to training data *.npy file",
+    )
+
+    args = parser.parse_args()
+
+    main(args.data_path)
