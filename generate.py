@@ -32,13 +32,12 @@ def load_model(model_name):
     return model
 
 
-def sample(prompt, model):
+def generate_text(prompt: str, model: GPT):
     enc = tiktoken.get_encoding("gpt2")
     encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
     decode = lambda l: enc.decode(l)
     start_ids = encode(prompt)
 
-    # try batch inference
     x = mx.array([start_ids], dtype=mx.uint32)
 
     print(prompt, end="")
@@ -71,4 +70,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     model = load_model(args.model_name)
-    sample(args.prompt, model)
+    generate_text(args.prompt, model)
