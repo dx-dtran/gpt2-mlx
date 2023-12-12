@@ -123,6 +123,12 @@ class GPTTrainer:
             self.accumulated_grads,
             grads,
         )
+
+        tree_map(
+            lambda grad: mx.eval(grad),
+            self.accumulated_grads,
+        )
+
         self.accumulated_loss += loss.item()
         return loss
 
@@ -170,13 +176,13 @@ def main(train_path):
     )
 
     train_config = TrainConfig(
-        num_iters=300,
-        batch_size=4,
-        grad_accumulation_steps=16,
+        num_iters=1000,
+        batch_size=12,
+        grad_accumulation_steps=4,
         max_lr=1e-3,
         min_lr=1e-4,
-        warmup_iters=0,
-        lr_decay_iters=300,
+        warmup_iters=200,
+        lr_decay_iters=1000,
     )
     trainer = GPTTrainer(train_path, train_config, model_config)
     trainer.train()
