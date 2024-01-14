@@ -5,6 +5,8 @@ import mlx.core as mx
 import mlx.nn as nn
 import optimizer as opt
 import math
+import os
+import json
 
 from mlx.utils import tree_flatten, tree_map
 from transformer import GPT, GPTConfig
@@ -20,6 +22,7 @@ class TrainConfig:
     min_lr: float
     warmup_iters: int
     lr_decay_iters: int
+    save_every: int
 
 
 class DataLoader:
@@ -55,8 +58,13 @@ class DataLoader:
 
 
 class GPTTrainer:
-    def __init__(self, data_path, train_config: TrainConfig, model_config: GPTConfig):
-        self.data_path = data_path
+    def __init__(
+        self,
+        data_path,
+        train_config: TrainConfig,
+        model_config: GPTConfig,
+        checkpoint_dir=None,
+    ):
         self.data_loader = DataLoader(data_path, model_config.block_size)
 
         # training hyperparameters
@@ -82,6 +90,22 @@ class GPTTrainer:
         self.accumulated_loss = 0.0
         self.iter_num = 0
 
+        self.checkpoint_dir = checkpoint_dir
+        self.data_path = data_path
+        self.data_loader = DataLoader(data_path, self.model_config.block_size)
+
+    def save_checkpoint(self, checkpoint_dir):
+        if not os.path.exists(checkpoint_dir):
+            os.makedirs(checkpoint_dir)
+
+        model_weights_path = os.path.join(checkpoint_dir, "model_weights.npz")
+        model_config_path = os.path.join(checkpoint_dir, "model_config.json")
+
+        self.model.save_weights(model_weights_path)
+
+        with open(model_config_path, "w") as f:
+            json.dump(self.model_config.__dict__, f)
+
     def print_parameter_count(self):
         mx.eval(self.model.parameters())
         nparams = sum(x.size for k, x in tree_flatten(self.model.parameters()))
@@ -95,10 +119,6 @@ class GPTTrainer:
             f"lr {self.optimizer.learning_rate:.4f}"
         )
         return toc
-
-    def create_data_iterator(self):
-        data_loader = DataLoader(self.data_path, self.model_config.block_size)
-        return data_loader.get_batch_iterator(self.batch_size)
 
     def update_learning_rate(self, it):
         if it < self.warmup_iters:
@@ -150,8 +170,8 @@ class GPTTrainer:
     def train(self):
         self.print_parameter_count()
 
-        train_data = self.create_data_iterator()
         tic = time.perf_counter()
+        train_data = self.data_loader.get_batch_iterator(self.batch_size)
 
         for iteration in range(self.num_iters * self.grad_accumulation_steps):
             inputs, targets = next(train_data)
@@ -162,29 +182,35 @@ class GPTTrainer:
                 self.update_learning_rate(self.iter_num)
                 batch_loss = self.compute_batch_loss(loss)
                 tic = self.print_loss(self.iter_num, batch_loss, tic)
+
+                if self.iter_num % self.train_config.save_every == 0:
+                    print(f"Saving model to {self.checkpoint_dir}")
+                    self.save_checkpoint(self.checkpoint_dir)
+
                 self.iter_num += 1
 
 
-def main(train_path):
+def main(train_path, checkpoint_dir):
     model_config = GPTConfig(
-        n_layer=3,
-        n_head=4,
-        n_embd=256,
+        n_layer=12,
+        n_head=12,
+        n_embd=768,
         vocab_size=50304,
-        block_size=256,
+        block_size=1024,
         bias=True,
     )
 
     train_config = TrainConfig(
-        num_iters=1000,
-        batch_size=12,
+        num_iters=200,
+        batch_size=2,
         grad_accumulation_steps=4,
         max_lr=1e-3,
         min_lr=1e-4,
-        warmup_iters=200,
-        lr_decay_iters=1000,
+        warmup_iters=20,
+        lr_decay_iters=200,
+        save_every=3,
     )
-    trainer = GPTTrainer(train_path, train_config, model_config)
+    trainer = GPTTrainer(train_path, train_config, model_config, checkpoint_dir)
     trainer.train()
 
 
@@ -199,7 +225,12 @@ if __name__ == "__main__":
         default="train.npy",
         help="Path to training data *.npy file",
     )
-
+    parser.add_argument(
+        "--checkpoint_dir",
+        type=str,
+        default="checkpoints",
+        help="Path to checkpoint directory to save model weights",
+    )
     args = parser.parse_args()
 
-    main(args.data_path)
+    main(args.data_path, args.checkpoint_dir)
