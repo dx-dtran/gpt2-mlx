@@ -9,6 +9,13 @@ from mlx.utils import tree_unflatten, tree_flatten
 from transformer import GPT, GPTConfig
 
 
+def load_weights(gpt_model, weights):
+    gpt_model.update(tree_unflatten(list(weights.items())))
+    mx.eval(gpt_model.parameters())
+    nparams = sum(x.size for k, x in tree_flatten(gpt_model.parameters()))
+    print(f"Loaded GPT-2 with {nparams / 1e6:.3f} M parameters")
+
+
 def load_custom_model(checkpoint_dir):
     model_weights_path = os.path.join(checkpoint_dir, "model_weights.npz")
     model_config_path = os.path.join(checkpoint_dir, "model_config.json")
@@ -21,11 +28,7 @@ def load_custom_model(checkpoint_dir):
     gpt_model = GPT(config)
 
     weights = mx.load(model_weights_path)
-    gpt_model.update(tree_unflatten(list(weights.items())))
-    mx.eval(gpt_model.parameters())
-
-    nparams = sum(x.size for k, x in tree_flatten(gpt_model.parameters()))
-    print(f"Loaded GPT-2 with {nparams / 1e6:.3f} M parameters")
+    load_weights(gpt_model, weights)
 
     return gpt_model
 
@@ -41,16 +44,13 @@ def load_openai_model(model_name):
     config_args["vocab_size"] = 50257
     config_args["block_size"] = 1024
     config_args["bias"] = True
+
     config = GPTConfig(**config_args)
 
     gpt_model = GPT(config)
 
     weights = mx.load(model_name + ".npz")
-    gpt_model.update(tree_unflatten(list(weights.items())))
-    mx.eval(gpt_model.parameters())
-
-    nparams = sum(x.size for k, x in tree_flatten(gpt_model.parameters()))
-    print(f"Loaded GPT-2 with {nparams / 1e6:.3f} M parameters")
+    load_weights(gpt_model, weights)
 
     return gpt_model
 
