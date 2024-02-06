@@ -2,12 +2,38 @@ import argparse
 import tiktoken
 import time
 import mlx.core as mx
+import os
+import json
 
 from mlx.utils import tree_unflatten, tree_flatten
 from transformer import GPT, GPTConfig
 
 
-def load_model(model_name):
+def load_weights(gpt_model, weights):
+    gpt_model.update(tree_unflatten(list(weights.items())))
+    mx.eval(gpt_model.parameters())
+    nparams = sum(x.size for k, x in tree_flatten(gpt_model.parameters()))
+    print(f"Loaded GPT-2 with {nparams / 1e6:.3f} M parameters")
+
+
+def load_custom_model(checkpoint_dir):
+    model_weights_path = os.path.join(checkpoint_dir, "model_weights.npz")
+    model_config_path = os.path.join(checkpoint_dir, "model_config.json")
+
+    with open(model_config_path, "r") as f:
+        config_args = json.load(f)
+
+    config = GPTConfig(**config_args)
+
+    gpt_model = GPT(config)
+
+    weights = mx.load(model_weights_path)
+    load_weights(gpt_model, weights)
+
+    return gpt_model
+
+
+def load_openai_model(model_name):
     config_args = {
         "gpt2": dict(n_layer=12, n_head=12, n_embd=768),
         "gpt2-medium": dict(n_layer=24, n_head=16, n_embd=1024),
@@ -18,18 +44,15 @@ def load_model(model_name):
     config_args["vocab_size"] = 50257
     config_args["block_size"] = 1024
     config_args["bias"] = True
+
     config = GPTConfig(**config_args)
 
-    model = GPT(config)
+    gpt_model = GPT(config)
 
     weights = mx.load(model_name + ".npz")
-    model.update(tree_unflatten(list(weights.items())))
-    mx.eval(model.parameters())
+    load_weights(gpt_model, weights)
 
-    nparams = sum(x.size for k, x in tree_flatten(model.parameters()))
-    print(f"Loaded GPT-2 with {nparams / 1e6:.3f} M parameters")
-
-    return model
+    return gpt_model
 
 
 def generate_text(prompt: str, model: GPT):
@@ -57,17 +80,30 @@ def generate_text(prompt: str, model: GPT):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate text from GPT-2")
+
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--model_name", type=str, help="The name of a pre-trained GPT-2 model to use"
+    )
+    group.add_argument(
+        "--checkpoint_dir",
+        type=str,
+        help="Path to the checkpoint directory of a custom model",
+    )
+
     parser.add_argument(
         "--prompt",
         type=str,
-        default="In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously unexplored valley, in the Andes Mountains. Even more surprising to the researchers was the fact that the unicorns spoke perfect English.",
+        default="In a shocking finding, scientist discovered a herd of unicorns living in a remote, previously",
         help="The prompt to generate text from",
-    )
-    parser.add_argument(
-        "--model_name", type=str, default="gpt2-xl", help="The name of the model to use"
     )
 
     args = parser.parse_args()
 
-    model = load_model(args.model_name)
-    generate_text(args.prompt, model)
+    if args.model_name:
+        model = load_openai_model(args.model_name)
+        generate_text(args.prompt, model)
+
+    elif args.checkpoint_dir:
+        model = load_custom_model(args.checkpoint_dir)
+        generate_text(args.prompt, model)

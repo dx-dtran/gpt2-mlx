@@ -10,9 +10,7 @@ Run OpenAI's 1.5 billion parameter model or train custom GPT-style models from s
   <em>GPT-2 XL 1.5B real-time text generation on M1 Pro 16GB</em>
 </p>
 
-## Quickstart
-
-### Install
+## Install
 
 Use a device with Apple silicon
 
@@ -24,7 +22,7 @@ $ pip install -r requirements.txt
 
 See the full GPT-2 neural network architecture, implemented in MLX, in [transformer.py](transformer.py)
 
-### Run
+## Run
 
 Download the pre-trained GPT-2 model weights from [Hugging Face](https://huggingface.co/gpt2-xl)
 
@@ -38,7 +36,7 @@ Generate text
 $ python generate.py --model_name="gpt2-xl" --prompt "In a shocking finding, scientists discovered a herd of unicorns"
 ```
 
-### Train
+## Train
 
 With `gpt2-mlx`, it is possible to train a custom GPT-style model on your own data
 
@@ -53,9 +51,16 @@ $ python prepare_data.py --data_path="path/to/train.txt"
 Train the model, natively on your device
 
 ```shell
-$ python train.py --data_path="path/to/train.npy"
+$ python train.py --data_path="path/to/train.npy" --checkpoint_dir="path/to/save/checkpoints"
 ```
 
 The [training script](train.py) loads data in batches at each training step to avoid loading the entire dataset into memory
 
 It also has an implementation of gradient accumulation, allowing you to train larger models with larger batch sizes than would otherwise fit in memory
+
+To generate text with your custom trained model, use the same `generate.py` file, but with the checkpoint directory containing your custom model definition and weights
+
+```shell
+$ python generate.py --checkpoint_dir="path/to/checkpoints" --prompt="Hello world,"
+```
+
