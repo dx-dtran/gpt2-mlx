@@ -208,7 +208,7 @@ def main(train_path, checkpoint_dir):
         min_lr=1e-4,
         warmup_iters=20,
         lr_decay_iters=200,
-        save_every=3,
+        save_every=20,
     )
     trainer = GPTTrainer(train_path, train_config, model_config, checkpoint_dir)
     trainer.train()
